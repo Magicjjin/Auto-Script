@@ -154,12 +154,28 @@ STR = 'input_auto,path=%s,job=%s,step=%s,report_path=%s,copy_to_job=%s'
     **step 에도 fw_type=form 을 쓴다** (앞서 "제거" 권고는 철회).
   - `save()` → `save_job,job=..,override=no`. Input 후 저장에 사용.
 
-## 5. job_input_ui.py 반영 상태
+## 4-3. genClasses.py (Mike J. Hopkins, 2004) 대조 결과 — 최종 확정
+
+- **step 프로파일 데이터타입은 `PROF_LIMITS`** (PROFILE_LIMITS 아님):
+  `getProfile()` 이 `gPROF_LIMITSxmin/ymin/xmax/ymax` 사용. → `_verify` 수정함.
+- **layer 범위는 `LIMITS`** → `gLIMITSxmin...` (parseInfo 예제에 `set gLIMITSxmin` 명시). 유지.
+- **step 레이어목록은 `LAYERS_LIST`** → `gLAYERS_LIST`. 유지.
+- **Job 생성 형식 확정** — `Top.createJob()`:
+  `create_entity,job=,is_fw=no,type=job,name=<name>,db=<db>,fw_type=form`.
+  → `_ensure_job` 에 빠졌던 `fw_type=form` 추가함. `job=` 빈값도 이걸로 확정.
+- **INFO 형식** — `info,out_file=..,write_mode=replace,args=..` (units 없이도 동작).
+  ezgw 의 args/out_file/units 조합도 유효(gateway.vbs). 변경 불필요.
+- **set_group** — `Step.COM` 이 그룹 있으면 `AUX set_group` 선행. 단 우리 흐름은
+  INFO 를 명시 entity 경로로, input 을 명시 step= 로 하므로 set_group 불필요.
+- **parseInfo** — ' = ' 분리 + 'set ' 제거 + `(...)` 워드리스트. ezgw `_parse_info` 와 동일.
+
+## 5. job_input_ui.py 반영 상태 (전부 확정)
 
 - [x] Input 완료 후 `save_job,job=..,override=no` 호출 추가 (`_save`)
 - [x] UID 입력칸 추가 — 비우면 자동탐색, 채우면 그 UID 사용
 - [x] `input_identify`/`input_auto` 파라미터 genCommands.py 로 확정 (수정 불필요)
-- [~] step 의 `fw_type="form"` — genCommands.py 로 **정당함 확인, 유지** (철회된 권고)
-- [ ] `_verify` 의 `PROFILE_LIMITS`/`LIMITS`/`LAYERS_LIST` 데이터타입 이름 —
-      아직 Genesis 관례 추정. 현장 Info Form 에서 실제 이름 확인 필요
-- [ ] `_ensure_job` 의 job 생성(`create_entity,type=job,job=""`) — 실제 동작 확인 권장
+- [x] step 의 `fw_type="form"` — genCommands.py 로 정당함 확인, 유지
+- [x] `_verify` 프로파일 데이터타입 `PROFILE_LIMITS` → **`PROF_LIMITS`** 로 수정 (genClasses.py)
+- [x] `_ensure_job` job 생성에 **`fw_type="form"` 추가** (genClasses.py Top.createJob)
+
+→ 문서로 확정 가능한 항목은 모두 완료. 남은 것은 실기 스모크 테스트뿐.

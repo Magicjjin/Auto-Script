@@ -157,11 +157,11 @@ class InputJob:
             self.log("Job 이 이미 있습니다. 그대로 엽니다: %s" % job)
         else:
             self.log("Job 생성: %s" % job)
-            # 새 Job 을 만들 때는 job= 을 비워 둔다.
-            # 이 형태는 genCommands.py 의 addStep() 패턴을 따른 것이므로
-            # 현장에서 한 번 Script Record 로 실제 출력과 대조해 두세요.
+            # genClasses.py Top.createJob() 와 동일한 형식:
+            #   create_entity,job=,is_fw=no,type=job,name=<job>,db=<db>,fw_type=form
+            # 새 Job 은 job= 을 비워 두고, fw_type=form 을 함께 준다.
             self.gw.com("create_entity", job="", is_fw="no", type="job",
-                        name=job, db=DATABASE)
+                        name=job, db=DATABASE, fw_type="form")
 
         self.gw.com("open_job", job=job)
         self.log("Job 열림")
@@ -222,16 +222,16 @@ class InputJob:
     def _verify(self, job, step):
         """Excellon 이 Gerber 와 1:1 로 올라왔는지 크기로 확인한다.
 
-        주의: PROFILE_LIMITS / LIMITS 라는 데이터 타입 이름은 Genesis 관례를 따른
-        추정입니다. 현장에서 Info Command Form (Actions > info) 을 열어
-        Entity type=step, Data type 목록에서 실제 이름을 한 번 확인하고
-        아래 문자열을 맞춰 주세요.
+        데이터 타입 이름은 genClasses.py 로 확정:
+          - step 프로파일: -d PROF_LIMITS  -> gPROF_LIMITSxmin/ymin/xmax/ymax
+          - layer 범위    : -d LIMITS       -> gLIMITSxmin/ymin/xmax/ymax
+          - step 레이어목록: -d LAYERS_LIST  -> gLAYERS_LIST
         """
         self.log("-" * 50)
         self.log("스케일 검증")
 
-        step_info = self.gw.info("-t step -e %s/%s -d PROFILE_LIMITS" % (job, step))
-        profile_box = parse_limits(step_info, "gPROFILE_LIMITS")
+        step_info = self.gw.info("-t step -e %s/%s -d PROF_LIMITS" % (job, step))
+        profile_box = parse_limits(step_info, "gPROF_LIMITS")
         if not profile_box:
             self.log("  프로파일 크기를 읽지 못했습니다. 데이터 타입 이름을 확인하세요.")
             return
