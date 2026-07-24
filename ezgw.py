@@ -138,8 +138,12 @@ class Gateway:
 
         raw = self._exec([self.gateway_exe, self.uid, command], self.timeout)
 
+        # 참고한 gateway.vbs 는 gateway.exe 의 stdout 을 읽지 않고 프로세스
+        # 종료만 기다린다(fire-and-wait). 즉 gateway.exe 가 상태값을 stdout 에
+        # 안 찍을 수 있다. 그럴 때 정수를 못 찾았다고 실패로 보면 모든 COM 이
+        # 예외가 되므로, 출력에서 상태를 못 읽으면 성공으로 간주한다.
         match = re.search(r"-?\d+", raw)
-        status = int(match.group()) if match else -1
+        status = int(match.group()) if match else STATUS_OK
 
         if check and status != STATUS_OK:
             raise EzcamError("COM 실패 (STATUS=%d): %s" % (status, command))
@@ -183,11 +187,12 @@ class Gateway:
         os.close(fd)
 
         try:
+            # 파라미터는 gateway.vbs 의 DO_INFO 와 정확히 동일하게 args/out_file/units
+            # 3개만 보낸다. (원본에 없는 write_mode 는 보내지 않는다.)
             self.com(
                 "info",
                 args=args,
                 out_file=to_cam_path(tmp_path),
-                write_mode="replace",
                 units=units,
             )
             # ezCAM 이 파일을 다 쓸 때까지 아주 잠깐 기다린다.

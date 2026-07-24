@@ -86,7 +86,7 @@ AUX set_group, group=$COMANS
 |---|---|---|
 | **save_job** | (목록 존재) | **Input 후 반드시 호출**. 안 하면 close_job/unload 시 결과 소실 |
 | close_job | ✅ | 메모리 job 닫기. 변경분은 저장 안 하면 소실 |
-| info | ❌ | 이름만. 질의 명령. **파라미터/반환형식 미확인** |
+| info | ✅ | **gateway.vbs 로 확정**: `COM info, args=..., out_file=..., units=...` (아래 참고) |
 | get_units | ✅ | 현재 단위 (Inch/mm) 반환 |
 | get_version | ✅ | 버전 반환 |
 | get_user_name | ✅ | 로그인 사용자명 반환 |
@@ -109,6 +109,33 @@ AUX set_group, group=$COMANS
 이 캡처본을 확보하면 `ezgw.py` 및 `InputJob._input()` 의 파라미터를 확정할 수 있다.
 
 ---
+
+## 4-1. gateway.vbs (Frank Yeh, 2015) 대조 결과
+
+원본 `resource/vbs/gateway.vbs` 로 통신 계층을 확정함.
+
+확정된 사실:
+- **INFO 는 COM 명령이다**: `DO_INFO` 가 `COMS "info", Array("args="+args,
+  "out_file="+unix_file, "units="+Units)` 를 호출 → `COM info,args=...,out_file=...,units=...`.
+  (write_mode 같은 추가 파라미터는 없음 — ezgw 에서 제거함)
+- **명령줄 형식**: `gateway.exe <UID> "COM <name>,<params>"` (params 는 콤마 연결, 공백 없음).
+- **out_file 은 슬래시 경로**: `Replace(sTmpFile, "\", "/")`.
+- **INFO 출력 파싱**: csh `set var = value` 및 `set var = ('v1' 'v2')`.
+  단일따옴표 제거 후 dict 로. → ezgw `_parse_info` 와 동일.
+- **UID 는 수동 지정**: `INITIALIZE "user@eastek.user.100", "C:\ezcam"`.
+  gateway.vbs 는 세션 자동탐색을 하지 않는다. (ezgw 의 `WHO *` 자동탐색은 추정 —
+  안 되면 `Gateway(uid="...")` 로 직접 지정)
+- **gateway.exe 경로**: gateway.vbs 기본값은 `CAMPath + "\1.1\bin\gateway.exe"` 지만,
+  이 설치의 스캔 결과는 `C:\ezcam\1.1_1.1\bin\gateway.exe` (bin\gateway.exe 419KB 확인됨).
+  → ezgw 는 `1.1_1.1` 로 설정. (만약 `C:\ezcam\1.1` 도 따로 있으면 확인 필요)
+- **COM 은 fire-and-wait**: `CallProcessAndWait` 가 WMI 로 프로세스를 띄우고 종료만
+  기다림. **stdout 의 상태값을 읽지 않음.** → ezgw `com()` 은 stdout 에서 상태를
+  못 읽으면 성공으로 간주하도록 수정함. (gateway.exe 가 상태를 안 찍을 수 있으므로)
+
+아직 미확정 (gateway.vbs 로도 안 나옴):
+- ezgw 의 `comans()` / `com_get()` (COMANS 조회) — gateway.vbs 에 없음. 추정.
+  단, job_input_ui.py 는 이걸 안 쓰므로 실행 경로엔 영향 없음.
+- `input_auto` / `input_identify` / `input_set_params` 파라미터 → script_record 필요.
 
 ## 5. 현재 job_input_ui.py 대비 반영할 수정
 
