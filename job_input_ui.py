@@ -147,6 +147,7 @@ class InputJob:
         self._ensure_job(job)
         self._ensure_step(job, step)
         self._input(job, step, cam_data, report, gbr_units, drl_units, copy_to_job)
+        self._save(job)
         self._verify(job, step)
 
     # -- 단계별 ------------------------------------------------------------
@@ -205,6 +206,18 @@ class InputJob:
             copy_to_job="yes" if copy_to_job else "no",
         )
         self.log("Input 완료. 리포트: %s" % report)
+
+    def _save(self, job):
+        """Input 결과를 디스크에 저장한다.
+
+        genCommands.py 의 save() 와 동일한 형식:
+            save_job,job=<job>,override=no
+        (override=yes 는 online 위반을 무시하고 저장). 이 호출이 없으면
+        close_job/unload 시 Input 결과가 소실된다.
+        """
+        self.log("Job 저장 중: %s" % job)
+        self.gw.com("save_job", job=job, override="no")
+        self.log("Job 저장 완료")
 
     def _verify(self, job, step):
         """Excellon 이 Gerber 와 1:1 로 올라왔는지 크기로 확인한다.
@@ -279,48 +292,55 @@ class App(tk.Tk):
         job_entry.grid(row=0, column=1, columnspan=2, sticky="we", **pad)
         job_entry.focus()
 
-        ttk.Label(frame, text="Step").grid(row=1, column=0, sticky="w", **pad)
-        self.step_var = tk.StringVar(value="org")
-        ttk.Entry(frame, textvariable=self.step_var, width=42).grid(
+        # ezCAM UID. demo.vbs 처럼 ezCAM > Actions > Copy UID to clipboard 로
+        # 복사해 붙여넣는다. 비워 두면 ezgw 가 세션 자동탐색(WHO *)을 시도한다.
+        ttk.Label(frame, text="ezCAM UID").grid(row=1, column=0, sticky="w", **pad)
+        self.uid_var = tk.StringVar()
+        ttk.Entry(frame, textvariable=self.uid_var, width=42).grid(
             row=1, column=1, columnspan=2, sticky="we", **pad)
 
-        ttk.Label(frame, text="DATA 폴더").grid(row=2, column=0, sticky="w", **pad)
+        ttk.Label(frame, text="Step").grid(row=2, column=0, sticky="w", **pad)
+        self.step_var = tk.StringVar(value="org")
+        ttk.Entry(frame, textvariable=self.step_var, width=42).grid(
+            row=2, column=1, columnspan=2, sticky="we", **pad)
+
+        ttk.Label(frame, text="DATA 폴더").grid(row=3, column=0, sticky="w", **pad)
         self.data_var = tk.StringVar()
         ttk.Entry(frame, textvariable=self.data_var, width=34).grid(
-            row=2, column=1, sticky="we", **pad)
+            row=3, column=1, sticky="we", **pad)
         ttk.Button(frame, text="찾아보기", command=self._browse).grid(
-            row=2, column=2, sticky="we", **pad)
+            row=3, column=2, sticky="we", **pad)
 
         ttk.Separator(frame, orient="horizontal").grid(
-            row=3, column=0, columnspan=3, sticky="we", pady=8)
+            row=4, column=0, columnspan=3, sticky="we", pady=8)
 
-        ttk.Label(frame, text="Gerber274x 단위").grid(row=4, column=0, sticky="w", **pad)
+        ttk.Label(frame, text="Gerber274x 단위").grid(row=5, column=0, sticky="w", **pad)
         self.gbr_var = tk.StringVar(value="auto")
         ttk.Combobox(frame, textvariable=self.gbr_var, width=10, state="readonly",
-                     values=["auto", "inch", "mm"]).grid(row=4, column=1, sticky="w", **pad)
+                     values=["auto", "inch", "mm"]).grid(row=5, column=1, sticky="w", **pad)
 
-        ttk.Label(frame, text="Excellon 단위").grid(row=5, column=0, sticky="w", **pad)
+        ttk.Label(frame, text="Excellon 단위").grid(row=6, column=0, sticky="w", **pad)
         self.drl_var = tk.StringVar(value="auto")
         ttk.Combobox(frame, textvariable=self.drl_var, width=10, state="readonly",
-                     values=["auto", "inch", "mm"]).grid(row=5, column=1, sticky="w", **pad)
+                     values=["auto", "inch", "mm"]).grid(row=6, column=1, sticky="w", **pad)
 
         ttk.Label(
             frame,
             text="Excellon 이 Gerber 와 크기가 안 맞으면 auto 대신 단위를 직접 지정하세요.",
             foreground="#555555",
-        ).grid(row=6, column=0, columnspan=3, sticky="w", padx=8)
+        ).grid(row=7, column=0, columnspan=3, sticky="w", padx=8)
 
         self.copy_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(frame, text="원본 파일을 job 안에 복사해 보관",
                         variable=self.copy_var).grid(
-            row=7, column=0, columnspan=3, sticky="w", **pad)
+            row=8, column=0, columnspan=3, sticky="w", **pad)
 
         self.start_btn = ttk.Button(frame, text="작업시작", command=self._start)
-        self.start_btn.grid(row=8, column=0, columnspan=3, sticky="we", padx=8, pady=10)
+        self.start_btn.grid(row=9, column=0, columnspan=3, sticky="we", padx=8, pady=10)
 
         self.log_box = tk.Text(frame, width=72, height=18, wrap="word",
                                font=("Consolas", 9))
-        self.log_box.grid(row=9, column=0, columnspan=3, sticky="nsew", padx=8)
+        self.log_box.grid(row=10, column=0, columnspan=3, sticky="nsew", padx=8)
         self.log_box.configure(state="disabled")
 
         # 시작할 때 DATA 폴더를 미리 채워 준다.
@@ -361,6 +381,7 @@ class App(tk.Tk):
 
         job = self.job_var.get().strip()
         step = self.step_var.get().strip()
+        uid = self.uid_var.get().strip()
         data_dir = normalize_to_link(self.data_var.get().strip())
 
         try:
@@ -379,19 +400,20 @@ class App(tk.Tk):
 
         self.worker = threading.Thread(
             target=self._run,
-            args=(job, step, data_dir, self.gbr_var.get(), self.drl_var.get(),
+            args=(job, step, uid, data_dir, self.gbr_var.get(), self.drl_var.get(),
                   self.copy_var.get()),
             daemon=True,
         )
         self.worker.start()
 
-    def _run(self, job, step, data_dir, gbr_units, drl_units, copy_to_job):
+    def _run(self, job, step, uid, data_dir, gbr_units, drl_units, copy_to_job):
         def log(text):
             self.messages.put(("log", text))
 
         try:
             log("ezCAM 세션 확인 중")
-            gateway = Gateway()
+            # UID 를 입력했으면 그대로 쓰고, 비었으면 ezgw 가 자동탐색한다.
+            gateway = Gateway(uid=uid) if uid else Gateway()
             log("연결: %s" % gateway.uid)
             log("-" * 50)
 

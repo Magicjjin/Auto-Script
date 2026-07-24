@@ -58,13 +58,20 @@ AUX set_group, group=$COMANS
 
 ---
 
-## 2. Input 계열 (핵심 — 대부분 ❌ 상세 미확인)
+## 2. Input 계열 (genCommands.py inputAuto() 로 확정)
+
+`resource/python/genCommands.py` 의 `inputAuto()` 원본으로 파라미터 확정:
+```python
+# input_set_params 는 주석처리 = 불필요
+STR = 'input_identify,path=%s,job=%s,script_path=%s,unify=yes,gbr_ext=yes,drl_ext=yes,gbr_units=auto,drl_units=auto,break_sr=no'
+STR = 'input_auto,path=%s,job=%s,step=%s,report_path=%s,copy_to_job=%s'
+```
 
 | 명령 | 상태 | 설명 (문서에 있으면) |
 |---|---|---|
-| input_identify | ❌ | 이름만. 파일 식별. **파라미터 미확인** |
-| input_auto | ❌ | 이름만. 자동 Input 실행. **파라미터 미확인** |
-| input_set_params | ❌ | 이름만. Input 파라미터 설정. **미확인** |
+| input_identify | ✅ | **확정**. param: `path`, `job`, `script_path`, `unify`, `gbr_ext`, `drl_ext`, `gbr_units`, `drl_units`, `break_sr` |
+| input_auto | ✅ | **확정**. param: `path`, `job`, `step`, `report_path`, `copy_to_job` |
+| input_set_params | ✅ | genCommands 에서 주석처리됨 = **input_identify+input_auto 만으로 충분** |
 | input_manual_set | ❌ | 이름만. 수동 input 파일목록 지정 |
 | input_manual | ✅ | 수동 input 실행. param: `script_path` (csh report 경로). 입력창 갱신 안 함 |
 | input_manual_reset | ✅ | input_manual 파일목록 리셋 |
@@ -117,7 +124,10 @@ AUX set_group, group=$COMANS
 확정된 사실:
 - **INFO 는 COM 명령이다**: `DO_INFO` 가 `COMS "info", Array("args="+args,
   "out_file="+unix_file, "units="+Units)` 를 호출 → `COM info,args=...,out_file=...,units=...`.
-  (write_mode 같은 추가 파라미터는 없음 — ezgw 에서 제거함)
+  ezgw 는 이 형식(args/out_file/units)을 따른다.
+  (참고: `write_mode=replace` 도 유효한 파라미터다 — genCommands.py `featOut()` 이
+   `info,out_file=...,write_mode=replace,args=...` 로 사용. 다만 ezgw 는 매번 새
+   임시파일을 쓰므로 write_mode 없이도 무해하여 생략함.)
 - **명령줄 형식**: `gateway.exe <UID> "COM <name>,<params>"` (params 는 콤마 연결, 공백 없음).
 - **out_file 은 슬래시 경로**: `Replace(sTmpFile, "\", "/")`.
 - **INFO 출력 파싱**: csh `set var = value` 및 `set var = ('v1' 'v2')`.
@@ -132,15 +142,24 @@ AUX set_group, group=$COMANS
   기다림. **stdout 의 상태값을 읽지 않음.** → ezgw `com()` 은 stdout 에서 상태를
   못 읽으면 성공으로 간주하도록 수정함. (gateway.exe 가 상태를 안 찍을 수 있으므로)
 
-아직 미확정 (gateway.vbs 로도 안 나옴):
-- ezgw 의 `comans()` / `com_get()` (COMANS 조회) — gateway.vbs 에 없음. 추정.
-  단, job_input_ui.py 는 이걸 안 쓰므로 실행 경로엔 영향 없음.
-- `input_auto` / `input_identify` / `input_set_params` 파라미터 → script_record 필요.
+## 4-2. demo.vbs / genCommands.py 대조 결과
 
-## 5. 현재 job_input_ui.py 대비 반영할 수정
+- **demo.vbs**: UID 는 ezCAM **Actions > Copy UID to clipboard** 로 얻어 `InputBox` 로
+  입력받음. 자동탐색 아님. → UI 에 UID 입력칸 추가함(비우면 자동탐색 fallback).
+  또한 `open_entity` 뒤 `set_group` 없이 바로 `DO_INFO` 하는 것을 보여줌 →
+  info 질의에는 set_group 불필요 확인.
+- **genCommands.py**:
+  - `inputAuto()` → input_identify/input_auto 파라미터 확정 (위 2절).
+  - `addStep()` → `create_entity,job=..,is_fw=no,type=step,name=..,fw_type=form`.
+    **step 에도 fw_type=form 을 쓴다** (앞서 "제거" 권고는 철회).
+  - `save()` → `save_job,job=..,override=no`. Input 후 저장에 사용.
 
-- [ ] step 의 `create_entity` 에서 `fw_type="form"` 제거
-- [ ] `open_entity` 후 `AUX set_group` 컨텍스트 전환 (ezgw 가 자동 처리하지 않는다면)
-- [ ] Input 완료 후 `save_job` 호출 추가
-- [ ] `input_auto`/`input_identify`/`input_set_params`/`info` 파라미터는
-      script_record 캡처로 확정
+## 5. job_input_ui.py 반영 상태
+
+- [x] Input 완료 후 `save_job,job=..,override=no` 호출 추가 (`_save`)
+- [x] UID 입력칸 추가 — 비우면 자동탐색, 채우면 그 UID 사용
+- [x] `input_identify`/`input_auto` 파라미터 genCommands.py 로 확정 (수정 불필요)
+- [~] step 의 `fw_type="form"` — genCommands.py 로 **정당함 확인, 유지** (철회된 권고)
+- [ ] `_verify` 의 `PROFILE_LIMITS`/`LIMITS`/`LAYERS_LIST` 데이터타입 이름 —
+      아직 Genesis 관례 추정. 현장 Info Form 에서 실제 이름 확인 필요
+- [ ] `_ensure_job` 의 job 생성(`create_entity,type=job,job=""`) — 실제 동작 확인 권장
