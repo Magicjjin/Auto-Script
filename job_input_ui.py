@@ -182,9 +182,14 @@ class InputJob:
 
     def _input(self, job, step, cam_data, report, gbr_units, drl_units,
                copy_to_job):
+        # genCommands.py inputAuto() 는 input_identify / input_auto 의 STATUS 를
+        # 확인하지 않고 진행한다. input_identify 는 non-zero(예: 1000)를 정보성으로
+        # 돌려줄 수 있으므로 여기서도 check=False 로 두고, 실제 성공 여부는 뒤의
+        # 스케일검증(레이어가 실제로 올라왔는지)으로 판단한다.
         self.log("파일 식별 중: %s" % cam_data)
-        self.gw.com(
+        st = self.gw.com(
             "input_identify",
+            check=False,
             path=cam_data,
             job=job,
             script_path=report + "_id",
@@ -195,16 +200,19 @@ class InputJob:
             drl_units=drl_units,
             break_sr="no",
         )
+        self.log("  input_identify STATUS=%d (0 이 아니어도 계속 진행)" % st)
 
         self.log("Input 실행 중 (Gerber=%s, Excellon=%s)" % (gbr_units, drl_units))
-        self.gw.com(
+        st = self.gw.com(
             "input_auto",
+            check=False,
             path=cam_data,
             job=job,
             step=step,
             report_path=report,
             copy_to_job="yes" if copy_to_job else "no",
         )
+        self.log("  input_auto STATUS=%d" % st)
         self.log("Input 완료. 리포트: %s" % report)
 
     def _save(self, job):

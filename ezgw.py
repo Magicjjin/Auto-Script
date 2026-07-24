@@ -62,6 +62,7 @@ class Gateway:
         self.tmp_dir = tmp_dir
         self.timeout = timeout
         self.uid = uid or self.pick_session(gateway_exe, timeout)
+        self.last_raw = ""   # 마지막 COM 의 gateway.exe 원본 출력 (진단용)
 
         os.makedirs(self.tmp_dir, exist_ok=True)
 
@@ -145,8 +146,14 @@ class Gateway:
         match = re.search(r"-?\d+", raw)
         status = int(match.group()) if match else STATUS_OK
 
+        # 마지막 명령의 원본 출력을 보관한다 (진단용).
+        self.last_raw = raw
+
         if check and status != STATUS_OK:
-            raise EzcamError("COM 실패 (STATUS=%d): %s" % (status, command))
+            # gateway.exe 원본 출력을 함께 보여 준다. ezCAM 이 에러 코드와 함께
+            # 사람이 읽을 수 있는 메시지를 여기 찍는 경우가 많다.
+            detail = ("\n  gateway 출력: %r" % raw) if raw else ""
+            raise EzcamError("COM 실패 (STATUS=%d): %s%s" % (status, command, detail))
         return status
 
     def comans(self):
