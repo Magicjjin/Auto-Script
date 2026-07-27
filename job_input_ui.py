@@ -41,9 +41,6 @@ SOURCE_SUBDIR = "원본"
 
 DATABASE = "ezcam"
 
-# Input 리포트를 남길 곳
-REPORT_DIR = r"C:\ezcam\tmp\input_report"
-
 # 스케일 오판 경보 기준. Excellon 자동 판별이 틀리면 이 배수로 어긋난다.
 SUSPECT_RATIOS = {
     25.4: "inch / mm 오판",
@@ -51,6 +48,60 @@ SUSPECT_RATIOS = {
     100.0: "좌표 형식 2단계 오판",
 }
 RATIO_TOLERANCE = 0.02   # 2% 이내면 그 배수로 본다
+
+
+# ---------------------------------------------------------------------------
+# 확장자별 Input 파라미터
+#
+# ezCAM 의 Script Record 로 실제 수동 Input 을 녹화해서 뽑아낸 값이다.
+# Gerber 는 nf1=3, Excellon 은 nf1=2 로 서로 다르다는 점이 핵심이다.
+# 이 값이 어긋나면 드릴이 거버 대비 10 배 크거나 작게 올라온다.
+# ---------------------------------------------------------------------------
+
+FORMAT_TABLE = {
+    ".art": dict(format="Gerber274x", zeroes="leading", nf1=3, nf2=5,
+                 multiplier=1, text_line_width=0.0024, has_layer=True),
+    ".gbr": dict(format="Gerber274x", zeroes="leading", nf1=3, nf2=5,
+                 multiplier=1, text_line_width=0.0024, has_layer=True),
+    ".drl": dict(format="Excellon2", zeroes="leading", nf1=2, nf2=5,
+                 multiplier=0, text_line_width=0, has_layer=True),
+    ".rou": dict(format="Excellon1", zeroes="leading", nf1=2, nf2=5,
+                 multiplier=0, text_line_width=0, has_layer=True),
+    ".ipc": dict(format="IPC356A", zeroes="none", nf1=0, nf2=0,
+                 multiplier=0, text_line_width=0, has_layer=False),
+}
+
+# Input 대상에서 제외할 확장자
+EXCLUDE_EXTS = {
+    ".tar", ".rar", ".zip", ".tgz", ".exe", ".gz",
+    ".xls", ".xlsx", ".jpg", ".doc", ".docx", ".pdf", ".txt",
+}
+
+
+def format_for(filename):
+    """파일명으로 Input 파라미터를 고른다. 모르는 확장자는 None."""
+    ext = os.path.splitext(filename)[1].lower()
+    return FORMAT_TABLE.get(ext)
+
+
+def collect_input_files(data_dir):
+    """DATA 폴더에서 Input 대상 파일을 모은다.
+
+    반환: [(파일명, 파라미터dict)] 리스트.
+    순서는 Script Record 와 같게 내림차순으로 맞춘다 (matrix 층 순서 때문).
+    """
+    files = []
+    for name in sorted(os.listdir(data_dir), reverse=True):
+        full = os.path.join(data_dir, name)
+        if not os.path.isfile(full):
+            continue
+        ext = os.path.splitext(name)[1].lower()
+        if ext in EXCLUDE_EXTS:
+            continue
+        params = format_for(name)
+        if params:
+            files.append((name, params))
+    return files
 
 
 # ---------------------------------------------------------------------------
@@ -72,33 +123,22 @@ def validate_name(kind, value):
 
 
 def resolve_data_dir():
-    """ezCAM 에 넘길 DATA 폴더 경로. 정션이 있으면 그쪽을 쓴다."""
-    linked = os.path.join(JOB_SITE_LINK, DATA_SUBDIR)
-    if os.path.isdir(linked):
-        return linked
+    """시작할 때 DATA 폴더 입력칸에 채워 둘 기본 경로.
 
-    real = os.path.join(JOB_SITE_REAL, DATA_SUBDIR)
-    if os.path.isdir(real):
-        raise EzcamError(
-            "DATA 폴더는 있지만 정션이 없습니다.\n"
-            "명령 프롬프트에서 아래를 한 번 실행하세요:\n\n"
-            '  mklink /J %s "%s"' % (JOB_SITE_LINK, JOB_SITE_REAL)
-        )
-    raise EzcamError("DATA 폴더를 찾을 수 없습니다: %s" % linked)
+    실제 구조는  <작업폴더>/<품번폴더>/DATA  이므로 품번마다 달라진다.
+    여기서는 작업 폴더만 돌려주고, 나머지는 '찾아보기' 로 고르게 한다.
+    정션(C:\\ezjob)이 있으면 그쪽을, 없으면 실제 경로를 쓴다.
 
-
-def normalize_to_link(path):
-    """실제 경로(하이픈/③ 포함)로 들어오면 ASCII 별칭 경로로 바꾼다.
-
-    '찾아보기' 로 정션 하위 폴더를 고르면 윈도우 대화상자가 정션을 풀어
-    실제 경로(JOB_SITE_REAL)를 돌려주는 경우가 있다. ezCAM 에는 반드시
-    별칭(JOB_SITE_LINK)만 넘겨야 하므로 여기서 되돌린다.
+    참고: ezCAM 의 Script Record 를 보면 ezCAM 자신이
+        C:/----------Job Site/③---Job/TEST/DATA/TSK.art
+    처럼 특수문자(③)와 선행 하이픈이 든 경로를 그대로 쓴다.
+    즉 정션은 필수가 아니다. 있으면 쓰고 없으면 실제 경로로 진행한다.
     """
-    real = os.path.normcase(os.path.normpath(JOB_SITE_REAL))
-    norm = os.path.normcase(os.path.normpath(path))
-    if norm == real or norm.startswith(real + os.sep):
-        return JOB_SITE_LINK + path[len(JOB_SITE_REAL):]
-    return path
+    if os.path.isdir(JOB_SITE_LINK):
+        return JOB_SITE_LINK
+    if os.path.isdir(JOB_SITE_REAL):
+        return JOB_SITE_REAL
+    raise EzcamError("작업 폴더를 찾을 수 없습니다: %s" % JOB_SITE_REAL)
 
 
 def parse_limits(info_dict, prefix):
@@ -139,14 +179,11 @@ class InputJob:
         self.gw = gateway
         self.log = log
 
-    def run(self, job, step, data_dir, gbr_units, drl_units, copy_to_job):
-        cam_data = to_cam_path(data_dir)
-        os.makedirs(REPORT_DIR, exist_ok=True)
-        report = to_cam_path(os.path.join(REPORT_DIR, "%s_inp.txt" % job))
-
+    def run(self, job, step, data_dir, gbr_units, drl_units, view_units):
         self._ensure_job(job)
         self._ensure_step(job, step)
-        self._input(job, step, cam_data, report, gbr_units, drl_units, copy_to_job)
+        self._input(job, step, data_dir, gbr_units, drl_units)
+        self._show(job, step, view_units)
         self._save(job)
         self._verify(job, step)
 
@@ -171,49 +208,91 @@ class InputJob:
             self.log("Step 이 이미 있습니다: %s" % step)
         else:
             self.log("Step 생성: %s" % step)
+            # Script Record 와 동일: db= 는 빈 값으로 함께 준다.
             self.gw.com("create_entity", job=job, is_fw="no", type="step",
-                        name=step, fw_type="form")
+                        fw_type="form", name=step, db="")
 
-        # skip_gui=yes 는 화면을 띄우지 않고 내부 실체만 만든다.
-        # 문서에 "ezCAM 을 API 로 호출할 때 유용하다" 고 명시된 옵션.
-        self.gw.com("open_entity", job=job, type="step", name=step,
-                    skip_gui="yes")
-        self.log("Step 열림")
+        # Record 에는 Input 전에 open_entity 가 없다. Input 이 끝난 뒤
+        # _show() 에서 한 번만 연다.
 
-    def _input(self, job, step, cam_data, report, gbr_units, drl_units,
-               copy_to_job):
-        # genCommands.py inputAuto() 는 input_identify / input_auto 의 STATUS 를
-        # 확인하지 않고 진행한다. input_identify 는 non-zero(예: 1000)를 정보성으로
-        # 돌려줄 수 있으므로 여기서도 check=False 로 두고, 실제 성공 여부는 뒤의
-        # 스케일검증(레이어가 실제로 올라왔는지)으로 판단한다.
-        self.log("파일 식별 중: %s" % cam_data)
-        st = self.gw.com(
-            "input_identify",
-            check=False,
-            path=cam_data,
-            job=job,
-            script_path=report + "_id",
-            unify="yes",
-            gbr_ext="yes",
-            drl_ext="yes",
-            gbr_units=gbr_units,
-            drl_units=drl_units,
-            break_sr="no",
-        )
-        self.log("  input_identify STATUS=%d (0 이 아니어도 계속 진행)" % st)
+    def _input(self, job, step, data_dir, gbr_units, drl_units):
+        """ezCAM 의 실제 Input 방식 (Script Record 로 확인).
 
-        self.log("Input 실행 중 (Gerber=%s, Excellon=%s)" % (gbr_units, drl_units))
-        st = self.gw.com(
-            "input_auto",
-            check=False,
-            path=cam_data,
-            job=job,
-            step=step,
-            report_path=report,
-            copy_to_job="yes" if copy_to_job else "no",
-        )
-        self.log("  input_auto STATUS=%d" % st)
-        self.log("Input 완료. 리포트: %s" % report)
+            input_manual_reset
+            input_manual_set  x 파일 수   (파라미터를 파일마다 전부 명시)
+            input_manual,script_path=
+
+        Genesis 의 input_identify / input_auto 는 ezCAM 에 없어서
+        STATUS=1000 으로 거부된다. 쓰지 않는다.
+        """
+        files = collect_input_files(data_dir)
+        if not files:
+            raise EzcamError("Input 할 파일이 없습니다: %s" % data_dir)
+
+        self.log("Input 목록 초기화")
+        self.gw.com("input_manual_reset")
+
+        self.log("파일 등록: %d 개" % len(files))
+        for name, spec in files:
+            cam_path = to_cam_path(os.path.join(data_dir, name))
+
+            # 단위는 UI 선택을 우선 적용한다. auto 면 Record 의 기본값(inch).
+            if spec["format"].startswith("Gerber"):
+                units = gbr_units if gbr_units != "auto" else "inch"
+            elif spec["format"].startswith("Excellon"):
+                units = drl_units if drl_units != "auto" else "inch"
+            else:
+                units = "inch"
+
+            # layer 이름은 파일명 소문자. IPC 넷리스트는 layer 를 비운다.
+            layer = name.lower() if spec["has_layer"] else ""
+
+            self.gw.com(
+                "input_manual_set",
+                path=cam_path,
+                job=job,
+                step=step,
+                format=spec["format"],
+                data_type="Ascii",
+                units=units,
+                coordinates="absolute",
+                zeroes=spec["zeroes"],
+                nf1=spec["nf1"],
+                nf2=spec["nf2"],
+                decimal="no",
+                separator="",
+                tool_units="inch",
+                layer=layer,
+                wheel="",
+                wheel_template="",
+                nf_comp=0,
+                multiplier=spec["multiplier"],
+                text_line_width=spec["text_line_width"],
+                signed_coords="no",
+                break_sr="no",
+                drill_only="no",
+                merge_by_rule="no",
+                threshold=0,
+                resolution=0,
+            )
+            self.log("  %-20s %-12s nf=%d.%d %s"
+                     % (name, spec["format"], spec["nf1"], spec["nf2"], units))
+
+        self.log("Input 실행 중…")
+        self.gw.com("input_manual", script_path="")
+        self.log("Input 완료")
+
+    def _show(self, job, step, view_units):
+        """Input 이 끝난 step 을 화면에 띄우고 표시 단위를 맞춘다.
+
+        Script Record 의 마지막 두 줄과 같다:
+            open_entity,job=..,type=step,name=..,iconic=no
+            units,type=mm
+        """
+        self.log("Step 표시: %s / %s" % (job, step))
+        self.gw.com("open_entity", job=job, type="step", name=step, iconic="no")
+        self.gw.com("units", type=view_units)
+        self.log("표시 단위: %s" % view_units)
 
     def _save(self, job):
         """Input 결과를 디스크에 저장한다.
@@ -338,10 +417,10 @@ class App(tk.Tk):
             foreground="#555555",
         ).grid(row=7, column=0, columnspan=3, sticky="w", padx=8)
 
-        self.copy_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(frame, text="원본 파일을 job 안에 복사해 보관",
-                        variable=self.copy_var).grid(
-            row=8, column=0, columnspan=3, sticky="w", **pad)
+        ttk.Label(frame, text="표시 단위").grid(row=8, column=0, sticky="w", **pad)
+        self.view_var = tk.StringVar(value="mm")
+        ttk.Combobox(frame, textvariable=self.view_var, width=10, state="readonly",
+                     values=["mm", "inch"]).grid(row=8, column=1, sticky="w", **pad)
 
         self.start_btn = ttk.Button(frame, text="작업시작", command=self._start)
         self.start_btn.grid(row=9, column=0, columnspan=3, sticky="we", padx=8, pady=10)
@@ -362,7 +441,7 @@ class App(tk.Tk):
         start = self.data_var.get() or JOB_SITE_LINK
         chosen = filedialog.askdirectory(initialdir=start, title="DATA 폴더 선택")
         if chosen:
-            self.data_var.set(normalize_to_link(os.path.normpath(chosen)))
+            self.data_var.set(os.path.normpath(chosen))
 
     def _log(self, text):
         self.log_box.configure(state="normal")
@@ -390,7 +469,7 @@ class App(tk.Tk):
         job = self.job_var.get().strip()
         step = self.step_var.get().strip()
         uid = self.uid_var.get().strip()
-        data_dir = normalize_to_link(self.data_var.get().strip())
+        data_dir = self.data_var.get().strip()
 
         try:
             validate_name("Job", job)
@@ -409,12 +488,12 @@ class App(tk.Tk):
         self.worker = threading.Thread(
             target=self._run,
             args=(job, step, uid, data_dir, self.gbr_var.get(), self.drl_var.get(),
-                  self.copy_var.get()),
+                  self.view_var.get()),
             daemon=True,
         )
         self.worker.start()
 
-    def _run(self, job, step, uid, data_dir, gbr_units, drl_units, copy_to_job):
+    def _run(self, job, step, uid, data_dir, gbr_units, drl_units, view_units):
         def log(text):
             self.messages.put(("log", text))
 
@@ -426,7 +505,7 @@ class App(tk.Tk):
             log("-" * 50)
 
             InputJob(gateway, log).run(
-                job, step, data_dir, gbr_units, drl_units, copy_to_job)
+                job, step, data_dir, gbr_units, drl_units, view_units)
 
             log("-" * 50)
             log("끝났습니다.")

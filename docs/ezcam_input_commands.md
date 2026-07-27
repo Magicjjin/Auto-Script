@@ -58,7 +58,53 @@ AUX set_group, group=$COMANS
 
 ---
 
-## 2. Input 계열 (genCommands.py inputAuto() 로 확정)
+## 2-0. ⚠️ 최종 확정: ezCAM 의 실제 Input 방식 (Script Record)
+
+**ezCAM 은 `input_identify` / `input_auto` 를 지원하지 않는다** (STATUS=1000 으로 거부).
+그것은 Genesis 2000 용이다. ezCAM 의 실제 순서는 다음과 같다:
+
+```
+COM create_entity,job=,is_fw=no,type=job,fw_type=form,name=<job>,db=ezcam
+COM create_entity,job=<job>,is_fw=no,type=step,fw_type=form,name=<step>,db=
+COM input_manual_reset
+COM input_manual_set,path=<파일>,job=..,step=..,format=..,...   ← 파일마다 1줄
+COM input_manual,script_path=
+COM open_entity,job=..,type=step,name=..,iconic=no
+COM units,type=mm
+```
+
+`input_manual_set` 의 전체 파라미터 (Record 원문 기준):
+`path, job, step, format, data_type, units, coordinates, zeroes, nf1, nf2,
+decimal, separator, tool_units, layer, wheel, wheel_template, nf_comp,
+multiplier, text_line_width, signed_coords, break_sr, drill_only,
+merge_by_rule, threshold, resolution`
+
+### 포맷별 값 (스케일 문제의 핵심)
+
+| 확장자 | format | zeroes | nf1 | nf2 | multiplier | text_line_width | layer |
+|---|---|---|---|---|---|---|---|
+| .art | Gerber274x | leading | **3** | 5 | 1 | 0.0024 | 파일명 소문자 |
+| .drl | Excellon2 | leading | **2** | 5 | 0 | 0 | 파일명 소문자 |
+| .rou | Excellon1 | leading | **2** | 5 | 0 | 0 | 파일명 소문자 |
+| .ipc | IPC356A | none | 0 | 0 | 0 | 0 | **빈 값** |
+
+공통: `data_type=Ascii, units=inch, coordinates=absolute, decimal=no,
+tool_units=inch, nf_comp=0, signed_coords=no, break_sr=no, drill_only=no,
+merge_by_rule=no, threshold=0, resolution=0`
+
+> **Gerber 는 nf1=3, Excellon 은 nf1=2.** 이 차이가 정확히 10 배다.
+> "Excellon 이 Gerber 보다 크거나 작게 뜬다"는 현상의 근본 원인이며,
+> 이 표대로 넣으면 1:1 로 맞는다.
+
+### 특수문자 경로는 문제없다
+
+Record 가 남긴 경로는 `C:/----------Job Site/③---Job/TEST/DATA/TSK.art` 로,
+ezCAM 이 선행 하이픈과 `③` 이 든 경로를 **그대로 처리한다**.
+정션(`mklink /J`)은 **필수가 아니다**. 폴더 구조는 `<작업폴더>/<품번>/DATA`.
+
+---
+
+## 2. (참고) Genesis 2000 의 Input — ezCAM 에는 없음
 
 `resource/python/genCommands.py` 의 `inputAuto()` 원본으로 파라미터 확정:
 ```python
